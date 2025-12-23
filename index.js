@@ -8,14 +8,15 @@ const { getDatabase, ref, onChildAdded } = require("firebase/database");
 
 // TODO: REPLACE with your Firebase config
 const firebaseConfig = {
-  apiKey: "AIzaSyDV3J3lrmpas-_zjqMRSYwm4zsRe75_lbI",
-  authDomain: "experimental-5494e.firebaseapp.com",
-  databaseURL: "https://experimental-5494e-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "experimental-5494e",
-  storageBucket: "experimental-5494e.firebasestorage.app",
-  messagingSenderId: "376350307630",
-  appId: "1:376350307630:web:5bdc65bed00883dd3936bf"
+  apiKey: process.env.FB_API_KEY,
+  authDomain: process.env.FB_AUTH_DOMAIN,
+  databaseURL: process.env.FB_DATABASE_URL,
+  projectId: process.env.FB_PROJECT_ID,
+  storageBucket: process.env.FB_STORAGE_BUCKET,
+  messagingSenderId: process.env.FB_MESSAGING_SENDER_ID,
+  appId: process.env.FB_APP_ID
 };
+
 
 
 const fb = firebase.initializeApp(firebaseConfig);
@@ -26,11 +27,15 @@ const { InfluxDB, Point } = require('@influxdata/influxdb-client');
 
 // TODO: REPLACE with your Influx credentials
 const influx = new InfluxDB({
-  url: "https://eu-central-1-1.aws.cloud2.influxdata.com",
-  token: "NHwIOxUMf3a_6kteflfAM8J4Fv_a5G8WijXuW2JjaaGbwAu522zMRSbIF_zzKFOHKMm5-J9EhmDWdltWj-eMqg=="
+  url: process.env.INFLUX_URL,
+  token: process.env.INFLUX_TOKEN
 });
 
-const writeApi = influx.getWriteApi("77f119fe622e6529", "labtrials");
+const writeApi = influx.getWriteApi(
+  process.env.INFLUX_ORG,
+  process.env.INFLUX_BUCKET
+);
+
 writeApi.useDefaultTags({ sensor: "sensor1" });
 
 // 3. Subscribe to Firebase child additions
