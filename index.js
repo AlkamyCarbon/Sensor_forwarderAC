@@ -1,11 +1,12 @@
-=// -------------------------
+// -------------------------
 // Firebase → Influx Bridge
 // -------------------------
 
-// 1. Firebase Setup
 const firebase = require("firebase/app");
 const { getDatabase, ref, onChildAdded } = require("firebase/database");
+const { InfluxDB, Point } = require("@influxdata/influxdb-client");
 
+// Firebase config
 const firebaseConfig = {
   apiKey: process.env.FB_API_KEY,
   authDomain: process.env.FB_AUTH_DOMAIN,
@@ -19,9 +20,7 @@ const firebaseConfig = {
 const fb = firebase.initializeApp(firebaseConfig);
 const db = getDatabase(fb);
 
-// 2. InfluxDB Setup
-const { InfluxDB, Point } = require("@influxdata/influxdb-client");
-
+// InfluxDB config — tuned for free tier + cross-region
 const influx = new InfluxDB({
   url: process.env.INFLUX_URL,
   token: process.env.INFLUX_TOKEN
@@ -29,44 +28,41 @@ const influx = new InfluxDB({
 
 const writeApi = influx.getWriteApi(
   process.env.INFLUX_ORG,
-  process.env.INFLUX_BUCKET
+  process.env.INFLUX_BUCKET,
+  "ns",
+  {
+    batchSize: 100,
+    flushInterval: 5000,
+    maxRetries: 5,
+    maxRetryDelay: 30000
+  }
 );
 
-// Optional tag (useful later if you add multiple sensors)
 writeApi.useDefaultTags({ sensor: "sensor1" });
 
-// Graceful shutdown — flush buffered points
+// 🔒 Prevent crashes on write failure
+writeApi
+  .getWriteFailedEvents()
+  .on("writeFailed", (error, lines, attempt) => {
+    console.error(
+      `Influx write failed (attempt ${attempt}):`,
+      error.message
+    );
+  });
+
+// Graceful shutdown
 process.on("SIGTERM", async () => {
   try {
     console.log("SIGTERM received — flushing Influx buffer...");
     await writeApi.close();
     console.log("Influx buffer flushed. Exiting.");
   } catch (err) {
-    console.error("Error while flushing Influx buffer:", err);
+    console.error("Error flushing Influx buffer:", err);
   }
   process.exit(0);
 });
 
-// 3. Subscribe to Firebase data
+// Firebase listener
 const phRef = ref(db, "phData");
 
-onChildAdded(phRef, (snapshot) => {
-  const val = snapshot.val();
-  console.log("New Firebase data:", val);
-
-  const phValue = parseFloat(val.ph);
-  if (Number.isNaN(phValue)) {
-    console.warn("Invalid pH value, skipping:", val.ph);
-    return;
-  }
-
-  const timestampMs = Date.now();
-
-  const point = new Point("ph_value")
-    .floatField("value", phValue)
-    .timestamp(timestampMs * 1e6); // ms → ns
-
-  writeApi.writePoint(point);
-  console.log("→ Queued for Influx");
-});
-
+onChildAdded(phRef, (snapshot) =>
