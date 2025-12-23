@@ -1,4 +1,4 @@
-// -------------------------
+=// -------------------------
 // Firebase → Influx Bridge
 // -------------------------
 
@@ -6,7 +6,6 @@
 const firebase = require("firebase/app");
 const { getDatabase, ref, onChildAdded } = require("firebase/database");
 
-// TODO: REPLACE with your Firebase config
 const firebaseConfig = {
   apiKey: process.env.FB_API_KEY,
   authDomain: process.env.FB_AUTH_DOMAIN,
@@ -17,15 +16,12 @@ const firebaseConfig = {
   appId: process.env.FB_APP_ID
 };
 
-
-
 const fb = firebase.initializeApp(firebaseConfig);
 const db = getDatabase(fb);
 
-// 2. Influx Setup
-const { InfluxDB, Point } = require('@influxdata/influxdb-client');
+// 2. InfluxDB Setup
+const { InfluxDB, Point } = require("@influxdata/influxdb-client");
 
-// TODO: REPLACE with your Influx credentials
 const influx = new InfluxDB({
   url: process.env.INFLUX_URL,
   token: process.env.INFLUX_TOKEN
@@ -36,24 +32,41 @@ const writeApi = influx.getWriteApi(
   process.env.INFLUX_BUCKET
 );
 
+// Optional tag (useful later if you add multiple sensors)
 writeApi.useDefaultTags({ sensor: "sensor1" });
 
-// 3. Subscribe to Firebase child additions
+// Graceful shutdown — flush buffered points
+process.on("SIGTERM", async () => {
+  try {
+    console.log("SIGTERM received — flushing Influx buffer...");
+    await writeApi.close();
+    console.log("Influx buffer flushed. Exiting.");
+  } catch (err) {
+    console.error("Error while flushing Influx buffer:", err);
+  }
+  process.exit(0);
+});
+
+// 3. Subscribe to Firebase data
 const phRef = ref(db, "phData");
 
-// each time new data is added
 onChildAdded(phRef, (snapshot) => {
   const val = snapshot.val();
   console.log("New Firebase data:", val);
 
   const phValue = parseFloat(val.ph);
-  const ts = Date.now(); // using real timestamp now
+  if (Number.isNaN(phValue)) {
+    console.warn("Invalid pH value, skipping:", val.ph);
+    return;
+  }
+
+  const timestampMs = Date.now();
 
   const point = new Point("ph_value")
     .floatField("value", phValue)
-    .timestamp(ts * 1e6); // convert ms → ns
+    .timestamp(timestampMs * 1e6); // ms → ns
 
   writeApi.writePoint(point);
-  writeApi.flush();
-  console.log("→ Written to Influx");
+  console.log("→ Queued for Influx");
 });
+
