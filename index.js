@@ -28,25 +28,11 @@ const influx = new InfluxDB({
 
 const writeApi = influx.getWriteApi(
   process.env.INFLUX_ORG,
-  process.env.INFLUX_BUCKET,
-  "ns",
-  {
-    batchSize: 100,
-    flushInterval: 5000,
-    maxRetries: 5,
-    maxRetryDelay: 30000
-  }
+  process.env.INFLUX_BUCKET
 );
 
+// Optional tag
 writeApi.useDefaultTags({ sensor: "sensor1" });
-
-// Handle write failures WITHOUT crashing
-writeApi.getWriteFailedEvents().on("writeFailed", (error, lines, attempt) => {
-  console.error(
-    `Influx write failed (attempt ${attempt}):`,
-    error.message
-  );
-});
 
 // Graceful shutdown (Render restarts)
 process.on("SIGTERM", async () => {
@@ -74,6 +60,11 @@ onChildAdded(phRef, (snapshot) => {
     .floatField("value", ph)
     .timestamp(Date.now() * 1e6);
 
-  writeApi.writePoint(point);
-  console.log("Queued pH:", ph);
+  try {
+    writeApi.writePoint(point);
+    console.log("Queued pH:", ph);
+  } catch (err) {
+    // This should almost never happen, but prevents crashes
+    console.error("Influx write error:", err.message);
+  }
 });
